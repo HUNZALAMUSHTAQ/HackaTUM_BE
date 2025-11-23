@@ -342,7 +342,7 @@ def generate_questions_for_preference(preference_id: int, user_context: str = ""
         
         # Initialize Gemini client
         client = genai.Client(
-            api_key="AIzaSyBPLG3vpI340bdAwgDa0CwFwR634RjFq8U"
+            api_key="API_KEY"
         )
         
         model = "gemini-2.0-flash"

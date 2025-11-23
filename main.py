@@ -1,10 +1,11 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from datetime import datetime
 import models
 import schemas
 from database import get_db, init_db
-from celery_tasks import generate_questions_task
+from celery_tasks import generate_questions_task, generate_vehicle_recommendation_task
 
 app = FastAPI(
     title="User Management API",
@@ -841,6 +842,534 @@ def get_task_status(task_id: str):
         }
     
     return response
+
+
+# ==================== AGENTIC SELECTOR ENDPOINTS ====================
+
+@app.post(
+    "/agentic-selector",
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["Agentic Selector"],
+    summary="Generate vehicle recommendation",
+    description="Generate AI-powered vehicle recommendation based on user preferences and available deals. Runs asynchronously in the background.",
+    responses={
+        202: {
+            "description": "Recommendation generation started"
+        },
+        404: {
+            "description": "User not found"
+        }
+    }
+)
+def create_agentic_selector(
+    selector_data: schemas.AgenticSelectorCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Generate vehicle recommendation using AI sellup agent.
+    
+    - **UserId**: ID of the user (required)
+    - **deals**: List of available vehicle deals (required)
+    
+    The recommendation will be generated asynchronously and saved to the database.
+    """
+    # Verify user exists
+    user = db.query(models.User).filter(models.User.id == selector_data.UserId).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with id {selector_data.UserId} not found"
+        )
+    
+    # Trigger Celery task
+    task = generate_vehicle_recommendation_task.delay(selector_data.UserId, selector_data.deals)
+    
+    return {
+        "message": "Vehicle recommendation generation started",
+        "user_id": selector_data.UserId,
+        "task_id": task.id,
+        "status": "processing"
+    }
+
+
+@app.get(
+    "/agentic-selector",
+    response_model=List[schemas.AgenticSelectorResponse],
+    tags=["Agentic Selector"],
+    summary="Get all agentic selector records",
+    description="Retrieve all agentic selector records with optional filtering.",
+    responses={
+        200: {
+            "description": "List of agentic selector records retrieved successfully"
+        }
+    }
+)
+def get_agentic_selectors(
+    skip: int = 0,
+    limit: int = 100,
+    user_id: Optional[int] = None,
+    vehicle_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get all agentic selector records with optional filtering.
+    
+    - **skip**: Number of records to skip (default: 0)
+    - **limit**: Maximum number of records to return (default: 100, max: 1000)
+    - **user_id**: Filter by user ID (optional)
+    - **vehicle_id**: Filter by vehicle ID (optional)
+    """
+    if limit > 1000:
+        limit = 1000
+    
+    query = db.query(models.AgenticSelector)
+    
+    if user_id:
+        query = query.filter(models.AgenticSelector.user_id == user_id)
+    if vehicle_id:
+        query = query.filter(models.AgenticSelector.vehicle_id == vehicle_id)
+    
+    selectors = query.order_by(models.AgenticSelector.created_at.desc()).offset(skip).limit(limit).all()
+    
+    return [
+        schemas.AgenticSelectorResponse(
+            id=selector.id,
+            VEHICLE_ID=selector.vehicle_id,
+            FEATURES_BASED_ON_PREFERENCES=selector.features_list,
+            REASON=selector.reason,
+            PERSUASIVE_MESSAGES_POINTS=selector.persuasive_messages_list,
+            UserId=selector.user_id,
+            created_at=selector.created_at,
+            updated_at=selector.updated_at
+        )
+        for selector in selectors
+    ]
+
+
+@app.get(
+    "/agentic-selector/{selector_id}",
+    response_model=schemas.AgenticSelectorResponse,
+    tags=["Agentic Selector"],
+    summary="Get agentic selector by ID",
+    description="Retrieve a specific agentic selector record by its ID.",
+    responses={
+        200: {
+            "description": "Agentic selector record found and returned successfully"
+        },
+        404: {
+            "description": "Agentic selector record not found"
+        }
+    }
+)
+def get_agentic_selector(selector_id: int, db: Session = Depends(get_db)):
+    """
+    Get a specific agentic selector record by ID.
+    
+    - **selector_id**: The unique identifier of the agentic selector record
+    """
+    selector = db.query(models.AgenticSelector).filter(models.AgenticSelector.id == selector_id).first()
+    if not selector:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agentic selector record not found"
+        )
+    
+    return schemas.AgenticSelectorResponse(
+        id=selector.id,
+        VEHICLE_ID=selector.vehicle_id,
+        FEATURES_BASED_ON_PREFERENCES=selector.features_list,
+        REASON=selector.reason,
+        PERSUASIVE_MESSAGES_POINTS=selector.persuasive_messages_list,
+        UserId=selector.user_id,
+        created_at=selector.created_at,
+        updated_at=selector.updated_at
+    )
+
+
+@app.get(
+    "/agentic-selector/user/{user_id}/latest",
+    response_model=schemas.AgenticSelectorResponse,
+    tags=["Agentic Selector"],
+    summary="Get latest agentic selector for user",
+    description="Retrieve the most recent agentic selector record for a specific user.",
+    responses={
+        200: {
+            "description": "Latest agentic selector record found"
+        },
+        404: {
+            "description": "No agentic selector record found for user"
+        }
+    }
+)
+def get_latest_agentic_selector(user_id: int, db: Session = Depends(get_db)):
+    """
+    Get the latest agentic selector record for a user.
+    
+    - **user_id**: The user ID
+    """
+    selector = db.query(models.AgenticSelector).filter(
+        models.AgenticSelector.user_id == user_id
+    ).order_by(models.AgenticSelector.created_at.desc()).first()
+    
+    if not selector:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No agentic selector record found for user {user_id}"
+        )
+    
+    return schemas.AgenticSelectorResponse(
+        id=selector.id,
+        VEHICLE_ID=selector.vehicle_id,
+        FEATURES_BASED_ON_PREFERENCES=selector.features_list,
+        REASON=selector.reason,
+        PERSUASIVE_MESSAGES_POINTS=selector.persuasive_messages_list,
+        UserId=selector.user_id,
+        created_at=selector.created_at,
+        updated_at=selector.updated_at
+    )
+
+
+# ==================== PROTECTION PLAN TRACKING ENDPOINTS ====================
+
+@app.post(
+    "/track-protection-plan",
+    response_model=schemas.TrackProtectionPlanResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Protection Plan Tracking"],
+    summary="Create or update protection plan tracking",
+    description="Create a new tracking record or update existing one if protectionPackageId and UserId combination already exists.",
+    responses={
+        200: {
+            "description": "Tracking record created or updated successfully"
+        },
+        404: {
+            "description": "User not found"
+        }
+    }
+)
+def track_protection_plan(
+    tracking_data: schemas.TrackProtectionPlanCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Create or update protection plan tracking data.
+    
+    If a record with the same protectionPackageId and UserId exists, it will be updated.
+    Otherwise, a new record will be created.
+    
+    - **protectionPackageId**: Protection package ID (required)
+    - **clickedIncludes**: Number of times includes was clicked (default: 0)
+    - **clickedUnIncludes**: Number of times un-includes was clicked (default: 0)
+    - **clickedPriceDistribution**: Number of times price distribution was clicked (default: 0)
+    - **clickedDescription**: Number of times description was clicked (default: 0)
+    - **timeSpendSelected**: Time spent on selected option in milliseconds (default: 0)
+    - **Unselected**: Number of times unselected (default: 0)
+    - **Selected**: Number of times selected (default: 0)
+    - **BookingId**: Booking ID (optional)
+    - **UserId**: User ID (required)
+    """
+    # Verify user exists
+    user = db.query(models.User).filter(models.User.id == tracking_data.UserId).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with id {tracking_data.UserId} not found"
+        )
+    
+    # Check if record already exists
+    existing_tracking = db.query(models.TrackProtectionPlan).filter(
+        models.TrackProtectionPlan.protection_package_id == tracking_data.protectionPackageId,
+        models.TrackProtectionPlan.user_id == tracking_data.UserId
+    ).first()
+    
+    if existing_tracking:
+        # Update existing record
+        existing_tracking.clicked_includes = tracking_data.clickedIncludes
+        existing_tracking.clicked_un_includes = tracking_data.clickedUnIncludes
+        existing_tracking.clicked_price_distribution = tracking_data.clickedPriceDistribution
+        existing_tracking.clicked_description = tracking_data.clickedDescription
+        existing_tracking.time_spend_selected = tracking_data.timeSpendSelected
+        existing_tracking.unselected = tracking_data.Unselected
+        existing_tracking.selected = tracking_data.Selected
+        existing_tracking.booking_id = tracking_data.BookingId
+        existing_tracking.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(existing_tracking)
+        
+        return schemas.TrackProtectionPlanResponse(
+            id=existing_tracking.id,
+            protectionPackageId=existing_tracking.protection_package_id,
+            clickedIncludes=existing_tracking.clicked_includes,
+            clickedUnIncludes=existing_tracking.clicked_un_includes,
+            clickedPriceDistribution=existing_tracking.clicked_price_distribution,
+            clickedDescription=existing_tracking.clicked_description,
+            timeSpendSelected=existing_tracking.time_spend_selected,
+            Unselected=existing_tracking.unselected,
+            Selected=existing_tracking.selected,
+            UserId=existing_tracking.user_id,
+            BookingId=existing_tracking.booking_id,
+            created_at=existing_tracking.created_at,
+            updated_at=existing_tracking.updated_at
+        )
+    else:
+        # Create new record
+        new_tracking = models.TrackProtectionPlan(
+            protection_package_id=tracking_data.protectionPackageId,
+            clicked_includes=tracking_data.clickedIncludes,
+            clicked_un_includes=tracking_data.clickedUnIncludes,
+            clicked_price_distribution=tracking_data.clickedPriceDistribution,
+            clicked_description=tracking_data.clickedDescription,
+            time_spend_selected=tracking_data.timeSpendSelected,
+            unselected=tracking_data.Unselected,
+            selected=tracking_data.Selected,
+            user_id=tracking_data.UserId,
+            booking_id=tracking_data.BookingId
+        )
+        
+        db.add(new_tracking)
+        db.commit()
+        db.refresh(new_tracking)
+        
+        return schemas.TrackProtectionPlanResponse(
+            id=new_tracking.id,
+            protectionPackageId=new_tracking.protection_package_id,
+            clickedIncludes=new_tracking.clicked_includes,
+            clickedUnIncludes=new_tracking.clicked_un_includes,
+            clickedPriceDistribution=new_tracking.clicked_price_distribution,
+            clickedDescription=new_tracking.clicked_description,
+            timeSpendSelected=new_tracking.time_spend_selected,
+            Unselected=new_tracking.unselected,
+            Selected=new_tracking.selected,
+            UserId=new_tracking.user_id,
+            BookingId=new_tracking.booking_id,
+            created_at=new_tracking.created_at,
+            updated_at=new_tracking.updated_at
+        )
+
+
+@app.get(
+    "/track-protection-plan",
+    response_model=List[schemas.TrackProtectionPlanResponse],
+    tags=["Protection Plan Tracking"],
+    summary="Get all protection plan tracking records",
+    description="Retrieve all protection plan tracking records with optional filtering.",
+    responses={
+        200: {
+            "description": "List of tracking records retrieved successfully"
+        }
+    }
+)
+def get_track_protection_plans(
+    skip: int = 0,
+    limit: int = 100,
+    user_id: Optional[int] = None,
+    protection_package_id: Optional[str] = None,
+    booking_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get all protection plan tracking records with optional filtering.
+    
+    - **skip**: Number of records to skip (default: 0)
+    - **limit**: Maximum number of records to return (default: 100, max: 1000)
+    - **user_id**: Filter by user ID (optional)
+    - **protection_package_id**: Filter by protection package ID (optional)
+    - **booking_id**: Filter by booking ID (optional)
+    """
+    if limit > 1000:
+        limit = 1000
+    
+    query = db.query(models.TrackProtectionPlan)
+    
+    if user_id:
+        query = query.filter(models.TrackProtectionPlan.user_id == user_id)
+    if protection_package_id:
+        query = query.filter(models.TrackProtectionPlan.protection_package_id == protection_package_id)
+    if booking_id:
+        query = query.filter(models.TrackProtectionPlan.booking_id == booking_id)
+    
+    tracking_records = query.offset(skip).limit(limit).all()
+    
+    return [
+        schemas.TrackProtectionPlanResponse(
+            id=record.id,
+            protectionPackageId=record.protection_package_id,
+            clickedIncludes=record.clicked_includes,
+            clickedUnIncludes=record.clicked_un_includes,
+            clickedPriceDistribution=record.clicked_price_distribution,
+            clickedDescription=record.clicked_description,
+            timeSpendSelected=record.time_spend_selected,
+            Unselected=record.unselected,
+            Selected=record.selected,
+            UserId=record.user_id,
+            BookingId=record.booking_id,
+            created_at=record.created_at,
+            updated_at=record.updated_at
+        )
+        for record in tracking_records
+    ]
+
+
+@app.get(
+    "/track-protection-plan/{tracking_id}",
+    response_model=schemas.TrackProtectionPlanResponse,
+    tags=["Protection Plan Tracking"],
+    summary="Get protection plan tracking by ID",
+    description="Retrieve a specific protection plan tracking record by its ID.",
+    responses={
+        200: {
+            "description": "Tracking record found and returned successfully"
+        },
+        404: {
+            "description": "Tracking record not found"
+        }
+    }
+)
+def get_track_protection_plan(tracking_id: int, db: Session = Depends(get_db)):
+    """
+    Get a specific protection plan tracking record by ID.
+    
+    - **tracking_id**: The unique identifier of the tracking record
+    """
+    tracking = db.query(models.TrackProtectionPlan).filter(models.TrackProtectionPlan.id == tracking_id).first()
+    if not tracking:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tracking record not found"
+        )
+    
+    return schemas.TrackProtectionPlanResponse(
+        id=tracking.id,
+        protectionPackageId=tracking.protection_package_id,
+        clickedIncludes=tracking.clicked_includes,
+        clickedUnIncludes=tracking.clicked_un_includes,
+        clickedPriceDistribution=tracking.clicked_price_distribution,
+        clickedDescription=tracking.clicked_description,
+        timeSpendSelected=tracking.time_spend_selected,
+        Unselected=tracking.unselected,
+        Selected=tracking.selected,
+        UserId=tracking.user_id,
+        BookingId=tracking.booking_id,
+        created_at=tracking.created_at,
+        updated_at=tracking.updated_at
+    )
+
+
+def compute_best_package(packages):
+    """
+    Compute the best protection package based on engagement, conversion rate, and consistency.
+    
+    Args:
+        packages: List of package dictionaries with tracking data
+    
+    Returns:
+        List of tuples (protectionPackageId, final_score) sorted by score descending
+    """
+    results = []
+    
+    for pkg in packages:
+        engagement = (
+            pkg["clickedIncludes"] * 1.5 +
+            pkg["clickedUnIncludes"] * 1.0 +
+            pkg["clickedPriceDistribution"] * 2.0 +
+            pkg["clickedDescription"] * 1.2 +
+            pkg["timeSpendSelected"] / 10000
+        )
+        
+        conversion_rate = pkg["Selected"] / (pkg["Selected"] + pkg["Unselected"] + 1)
+        
+        consistency = 1 - abs(pkg["Selected"] - pkg["Unselected"]) / \
+                      (pkg["Selected"] + pkg["Unselected"] + 1)
+        
+        final_score = (0.5 * engagement) + \
+                      (0.3 * conversion_rate) + \
+                      (0.2 * consistency)
+        
+        results.append({
+            "protectionPackageId": pkg["protectionPackageId"],
+            "final_score": final_score,
+            "engagement": engagement,
+            "conversion_rate": conversion_rate,
+            "consistency": consistency,
+            "package_data": pkg
+        })
+    
+    best = sorted(results, key=lambda x: x["final_score"], reverse=True)
+    return best
+
+
+@app.get(
+    "/protection-package/best/{user_id}",
+    response_model=schemas.BestProtectionPackageResponse,
+    tags=["Protection Plan Tracking"],
+    summary="Get best protection package for user",
+    description="Compute and return the best protection package for a user based on engagement, conversion rate, and consistency metrics.",
+    responses={
+        200: {
+            "description": "Best protection package found"
+        },
+        404: {
+            "description": "No protection packages found for user"
+        }
+    }
+)
+def get_best_protection_package(user_id: int, db: Session = Depends(get_db)):
+    """
+    Get the best protection package for a user.
+    
+    The algorithm computes a score based on:
+    - Engagement (50%): clicks on includes, un-includes, price distribution, description, and time spent
+    - Conversion Rate (30%): ratio of selected vs unselected
+    - Consistency (20%): how consistent the selection pattern is
+    
+    - **user_id**: The user ID to get the best package for
+    """
+    # Get all packages for the user
+    packages = db.query(models.TrackProtectionPlan).filter(
+        models.TrackProtectionPlan.user_id == user_id
+    ).all()
+    
+    if not packages:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No protection packages found for user {user_id}"
+        )
+    
+    # Convert to dictionary format for algorithm
+    packages_data = []
+    for pkg in packages:
+        packages_data.append({
+            "protectionPackageId": pkg.protection_package_id,
+            "clickedIncludes": pkg.clicked_includes,
+            "clickedUnIncludes": pkg.clicked_un_includes,
+            "clickedPriceDistribution": pkg.clicked_price_distribution,
+            "clickedDescription": pkg.clicked_description,
+            "timeSpendSelected": pkg.time_spend_selected,
+            "Selected": pkg.selected,
+            "Unselected": pkg.unselected
+        })
+    
+    # Compute best package
+    best_packages = compute_best_package(packages_data)
+    
+    if not best_packages:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No protection packages found for user {user_id}"
+        )
+    
+    # Get the best one (first in sorted list)
+    best = best_packages[0]
+    
+    return schemas.BestProtectionPackageResponse(
+        protectionPackageId=best["protectionPackageId"],
+        score=best["final_score"],
+        engagement=best["engagement"],
+        conversion_rate=best["conversion_rate"],
+        consistency=best["consistency"],
+        package_data=best["package_data"]
+    )
 
 
 # ==================== QUESTION ANSWER ENDPOINTS ====================

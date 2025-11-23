@@ -128,6 +128,146 @@ class PreferenceCreateResponse(BaseModel):
     message: str = Field(..., description="Status message")
 
 
+class AgenticSelectorCreate(BaseModel):
+    UserId: int = Field(..., description="User ID", example=1)
+    deals: List[dict] = Field(..., description="List of available vehicle deals")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "UserId": 1,
+                "deals": [
+                    {
+                        "vehicle": {
+                            "id": "bb728740-95ac-7a86-2025-087de2dd7a66",
+                            "brand": "FORD",
+                            "model": "MUSTANG",
+                            "modelAnnex": "2.3 ECOBOOST PREMIUM CONVERTIBLE RWD",
+                            "acrissCode": "FTAR",
+                            "images": ["https://vehicle-pictures-prod.orange.sixt.com/5144354/ffffff/18_1.png"],
+                            "bagsCount": 0,
+                            "passengersCount": 4,
+                            "groupType": "CONVERTIBLE",
+                            "tyreType": "ALL-YEAR_TYRES",
+                            "transmissionType": "Automatic",
+                            "fuelType": "",
+                            "isNewCar": False,
+                            "isRecommended": True,
+                            "isMoreLuxury": False,
+                            "isExcitingDiscount": False
+                        },
+                        "pricing": {
+                            "displayPrice": {
+                                "currency": "USD",
+                                "amount": 46.75,
+                                "prefix": "+",
+                                "suffix": "/day"
+                            },
+                            "totalPrice": {
+                                "currency": "USD",
+                                "amount": 93.5,
+                                "prefix": "",
+                                "suffix": "in total"
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+
+
+class AgenticSelectorResponse(BaseModel):
+    id: int = Field(..., description="Unique identifier for the agentic selector")
+    VEHICLE_ID: str = Field(..., description="Recommended vehicle ID", alias="vehicle_id")
+    FEATURES_BASED_ON_PREFERENCES: List[str] = Field(..., description="Features based on user preferences")
+    REASON: str = Field(..., description="Reason for recommendation")
+    PERSUASIVE_MESSAGES_POINTS: List[str] = Field(..., description="Persuasive message points")
+    UserId: int = Field(..., description="User ID", alias="user_id")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
+
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+
+
+class TrackProtectionPlanCreate(BaseModel):
+    protectionPackageId: str = Field(..., description="Protection package ID", example="1")
+    clickedIncludes: int = Field(0, description="Number of times includes was clicked", example=0, ge=0)
+    clickedUnIncludes: int = Field(0, description="Number of times un-includes was clicked", example=0, ge=0)
+    clickedPriceDistribution: int = Field(0, description="Number of times price distribution was clicked", example=0, ge=0)
+    clickedDescription: int = Field(0, description="Number of times description was clicked", example=0, ge=0)
+    timeSpendSelected: int = Field(0, description="Time spent on selected option in milliseconds", example=571007, ge=0)
+    Unselected: int = Field(0, description="Number of times unselected", example=2, ge=0)
+    Selected: int = Field(0, description="Number of times selected", example=2, ge=0)
+    BookingId: Optional[str] = Field(None, description="Booking ID", example="booking123")
+    UserId: int = Field(..., description="User ID", example=1)
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "protectionPackageId": "1",
+                "clickedIncludes": 0,
+                "clickedUnIncludes": 0,
+                "clickedPriceDistribution": 0,
+                "clickedDescription": 0,
+                "timeSpendSelected": 571007,
+                "Unselected": 2,
+                "Selected": 2,
+                "BookingId": "booking123",
+                "UserId": 1
+            }
+        }
+
+
+class BestProtectionPackageResponse(BaseModel):
+    protectionPackageId: str = Field(..., description="Best protection package ID")
+    score: float = Field(..., description="Final computed score")
+    engagement: float = Field(..., description="Engagement score")
+    conversion_rate: float = Field(..., description="Conversion rate")
+    consistency: float = Field(..., description="Consistency score")
+    package_data: dict = Field(..., description="Full package data")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "protectionPackageId": "1",
+                "score": 0.85,
+                "engagement": 0.75,
+                "conversion_rate": 0.6,
+                "consistency": 0.8,
+                "package_data": {
+                    "clickedIncludes": 5,
+                    "clickedUnIncludes": 2,
+                    "clickedPriceDistribution": 3,
+                    "clickedDescription": 4,
+                    "timeSpendSelected": 571007,
+                    "Selected": 10,
+                    "Unselected": 5
+                }
+            }
+        }
+
+
+class TrackProtectionPlanResponse(BaseModel):
+    id: int = Field(..., description="Unique identifier for the tracking record")
+    protectionPackageId: str = Field(..., description="Protection package ID")
+    clickedIncludes: int = Field(..., description="Number of times includes was clicked")
+    clickedUnIncludes: int = Field(..., description="Number of times un-includes was clicked")
+    clickedPriceDistribution: int = Field(..., description="Number of times price distribution was clicked")
+    clickedDescription: int = Field(..., description="Number of times description was clicked")
+    timeSpendSelected: int = Field(..., description="Time spent on selected option in milliseconds")
+    Unselected: int = Field(..., description="Number of times unselected")
+    Selected: int = Field(..., description="Number of times selected")
+    UserId: int = Field(..., description="User ID")
+    BookingId: Optional[str] = Field(None, description="Booking ID")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
+
+    class Config:
+        from_attributes = True
+
+
 class UserCreate(BaseModel):
     name: str = Field(..., description="Full name of the user", example="John Doe")
     age: int = Field(..., description="Age of the user", example=30, ge=0)

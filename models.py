@@ -72,3 +72,74 @@ class Preference(Base):
     user = relationship("User", back_populates="preferences")
     questions = relationship("Question", back_populates="preference", cascade="all, delete-orphan")
 
+
+class TrackProtectionPlan(Base):
+    __tablename__ = "track_protection_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    protection_package_id = Column(String, nullable=False, index=True)
+    clicked_includes = Column(Integer, default=0, nullable=False)
+    clicked_un_includes = Column(Integer, default=0, nullable=False)
+    clicked_price_distribution = Column(Integer, default=0, nullable=False)
+    clicked_description = Column(Integer, default=0, nullable=False)
+    time_spend_selected = Column(Integer, default=0, nullable=False)
+    unselected = Column(Integer, default=0, nullable=False)
+    selected = Column(Integer, default=0, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    booking_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    # Relationship with user
+    user = relationship("User")
+
+
+class AgenticSelector(Base):
+    __tablename__ = "agentic_selectors"
+
+    id = Column(Integer, primary_key=True, index=True)
+    vehicle_id = Column(String, nullable=False)
+    features_based_on_preferences = Column(Text, nullable=False)  # JSON string storing list of strings
+    reason = Column(Text, nullable=False)
+    persuasive_messages_points = Column(Text, nullable=False)  # JSON string storing list of strings
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    # Relationship with user
+    user = relationship("User")
+    
+    def set_features(self, features_list):
+        """Set features as a JSON string"""
+        if features_list is not None:
+            self.features_based_on_preferences = json.dumps(features_list)
+        else:
+            self.features_based_on_preferences = None
+    
+    def set_persuasive_messages(self, messages_list):
+        """Set persuasive messages as a JSON string"""
+        if messages_list is not None:
+            self.persuasive_messages_points = json.dumps(messages_list)
+        else:
+            self.persuasive_messages_points = None
+    
+    @property
+    def features_list(self):
+        """Get features as a list"""
+        if self.features_based_on_preferences:
+            try:
+                return json.loads(self.features_based_on_preferences)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return []
+    
+    @property
+    def persuasive_messages_list(self):
+        """Get persuasive messages as a list"""
+        if self.persuasive_messages_points:
+            try:
+                return json.loads(self.persuasive_messages_points)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return []
+
